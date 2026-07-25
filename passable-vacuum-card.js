@@ -5,7 +5,7 @@ import {
   svg,
 } from "https://unpkg.com/lit@3.0.0/index.js?module";
 
-const CARD_VERSION = "1.0.0";
+const CARD_VERSION = "1.0.1";
 
 console.info(
   `%c PASSABLE-VACUUM-CARD %c v${CARD_VERSION} `,
@@ -497,9 +497,13 @@ class PassableVacuumCard extends LitElement {
   }
 
   setConfig(config) {
-    if (!config.entity) throw new Error("Please define a vacuum entity.");
+    if (!config) {
+      throw new Error("Invalid configuration.");
+    }
     this.config = config;
-    this._discoverEntities();
+    if (this.hass) {
+      this._discoverEntities();
+    }
   }
 
   getCardSize() {
@@ -524,8 +528,7 @@ class PassableVacuumCard extends LitElement {
 
   updated(changedProps) {
     if (
-      changedProps.has("hass") &&
-      !this._entityMap &&
+      (changedProps.has("hass") || changedProps.has("config")) &&
       this.hass &&
       this.config
     ) {
@@ -536,7 +539,12 @@ class PassableVacuumCard extends LitElement {
   // --- ENTITY DISCOVERY & DATA PROCESSING ---
   _discoverEntities() {
     if (!this.hass || !this.config) return;
-    const vacuumId = this.config.entity;
+    const vacuumId = this.config.entity || "";
+    if (!vacuumId) {
+      this._entityMap = {};
+      this._cachedBaseName = "";
+      return;
+    }
     const baseName = vacuumId.split(".")[1] || "";
     this._cachedBaseName = baseName;
 
@@ -711,17 +719,23 @@ class PassableVacuumCard extends LitElement {
     const manualRoutines = Object.keys(this.hass.states)
       .filter(
         (e) =>
+          this._cachedBaseName &&
           e.startsWith(`button.${this._cachedBaseName}`) &&
           !e.includes("locate") &&
           !e.includes("reset")
       )
       .map((e) => {
         let cleanName =
-          this.hass.states[e].attributes.friendly_name || e.split(".").pop();
-        cleanName = cleanName.replace(new RegExp(vacuumName, "ig"), "").trim();
-        cleanName = cleanName.replace(/roborock/gi, "").trim();
-        if (cleanName.startsWith("-"))
-          cleanName = cleanName.substring(1).trim();
+          this.hass.states[e]?.attributes?.friendly_name || e.split(".").pop();
+        if (cleanName && vacuumName) {
+          const escapedName = vacuumName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          cleanName = cleanName.replace(new RegExp(escapedName, "ig"), "").trim();
+        }
+        if (cleanName) {
+          cleanName = cleanName.replace(/roborock/gi, "").trim();
+          if (cleanName.startsWith("-"))
+            cleanName = cleanName.substring(1).trim();
+        }
         return { id: e, name: cleanName || "Routine" };
       });
 
@@ -1048,8 +1062,34 @@ class PassableVacuumCard extends LitElement {
 
   // --- RENDERING ---
   render() {
+    if (!this.config?.entity) {
+      return html`
+        <ha-card header="Passable Vacuum Card">
+          <div style="padding: 16px; display: flex; align-items: center; gap: 12px; color: var(--secondary-text-color);">
+            <ha-icon icon="mdi:robot-vacuum" style="color: var(--primary-color, #3b82f6); --mdc-icon-size: 32px;"></ha-icon>
+            <div>
+              <div style="font-weight: 600; color: var(--primary-text-color);">Passable Vacuum Card</div>
+              <div style="font-size: 13px;">Please select a vacuum entity in the card editor.</div>
+            </div>
+          </div>
+        </ha-card>
+      `;
+    }
+
     const data = this.data;
-    if (!data) return html`<div style="padding: 20px;">Loading...</div>`;
+    if (!data) {
+      return html`
+        <ha-card header="Passable Vacuum Card">
+          <div style="padding: 16px; display: flex; align-items: center; gap: 12px; color: var(--secondary-text-color);">
+            <ha-icon icon="mdi:alert-circle-outline" style="color: var(--warning-color, #f59e0b); --mdc-icon-size: 28px;"></ha-icon>
+            <div>
+              <div style="font-weight: 600; color: var(--primary-text-color);">Passable Vacuum Card</div>
+              <div style="font-size: 13px;">Entity <code>${this.config.entity}</code> is invalid or not found.</div>
+            </div>
+          </div>
+        </ha-card>
+      `;
+    }
 
     const isCleaning = ["cleaning", "returning", "moving"].includes(data.state);
 
@@ -3004,13 +3044,33 @@ if (!customElements.get("passable-vacuum-card-editor")) {
   );
 }
 
-PassableVacuumCard.getConfigElement = () =>
-  document.createElement("passable-vacuum-card-editor");
-PassableVacuumCard.getStubConfig = () => ({
-  type: "custom:passable-vacuum-card",
-  entity: "",
-  map_camera: "",
-});
+PassableVacuumCard.getStubConfig = (hass, entities, entitiesFallback) => {
+  let vacuumEntity = "";
+  if (entities && entities.length > 0) {
+    vacuumEntity = entities.find((e) => e.startsWith("vacuum.")) || "";
+  }
+  if (!vacuumEntity && hass && hass.states) {
+    vacuumEntity =
+      Object.keys(hass.states).find((e) => e.startsWith("vacuum.")) || "";
+  }
+  if (!vacuumEntity && entitiesFallback && entitiesFallback.length > 0) {
+    vacuumEntity = entitiesFallback.find((e) => e.startsWith("vacuum.")) || "";
+  }
+  let mapCamera = "";
+  if (hass && hass.states) {
+    mapCamera =
+      Object.keys(hass.states).find(
+        (e) =>
+          (e.startsWith("camera.") || e.startsWith("image.")) &&
+          e.toLowerCase().includes("map")
+      ) || "";
+  }
+  return {
+    type: "custom:passable-vacuum-card",
+    entity: vacuumEntity,
+    map_camera: mapCamera,
+  };
+};
 
 if (!customElements.get("passable-vacuum-card")) {
   customElements.define("passable-vacuum-card", PassableVacuumCard);
