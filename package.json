@@ -1,0 +1,23 @@
+{
+  "name": "passable-vacuum-card",
+  "version": "1.0.0",
+  "description": "A customizable, interactive Home Assistant Lovelace card for robot vacuums.",
+  "main": "passable-vacuum-card.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GBear09/passable-vacuum-card.git"
+  },
+  "keywords": [
+    "home-assistant",
+    "lovelace",
+    "custom-card",
+    "vacuum",
+    "hacs"
+  ],
+  "author": "GBear09",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/GBear09/passable-vacuum-card/issues"
+  },
+  "homepage": "https://github.com/GBear09/passable-vacuum-card#readme"
+}
