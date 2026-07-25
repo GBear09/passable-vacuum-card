@@ -3,9 +3,9 @@ import {
   html,
   css,
   svg,
-} from "https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm";
+} from "https://unpkg.com/lit@3.0.0/index.js?module";
 
-const CARD_VERSION = "1.0.2";
+const CARD_VERSION = "1.0.3";
 
 console.info(
   `%c PASSABLE-VACUUM-CARD %c v${CARD_VERSION} `,
@@ -451,37 +451,6 @@ function formatDryingTime(timeInSeconds) {
 }
 
 class PassableVacuumCard extends LitElement {
-  static async getConfigElement() {
-    return document.createElement("passable-vacuum-card-editor");
-  }
-
-  static getStubConfig(hass, entities, entitiesFallback) {
-    let vacuumEntity = "";
-    if (entities && entities.length > 0) {
-      vacuumEntity = entities.find((e) => e.startsWith("vacuum.")) || "";
-    }
-    if (!vacuumEntity && hass && hass.states) {
-      vacuumEntity =
-        Object.keys(hass.states).find((e) => e.startsWith("vacuum.")) || "";
-    }
-    if (!vacuumEntity && entitiesFallback && entitiesFallback.length > 0) {
-      vacuumEntity = entitiesFallback.find((e) => e.startsWith("vacuum.")) || "";
-    }
-    let mapCamera = "";
-    if (hass && hass.states) {
-      mapCamera =
-        Object.keys(hass.states).find(
-          (e) =>
-            (e.startsWith("camera.") || e.startsWith("image.")) &&
-            e.toLowerCase().includes("map")
-        ) || "";
-    }
-    return {
-      type: "custom:passable-vacuum-card",
-      entity: vacuumEntity,
-      map_camera: mapCamera,
-    };
-  }
   static properties = {
     hass: { attribute: false },
     config: { state: true },
@@ -3074,8 +3043,15 @@ if (!customElements.get("passable-vacuum-card-editor")) {
     PassableVacuumCardEditor
   );
 }
+if (!customElements.get("vacuum-dashboard-card-editor")) {
+  class LegacyVacuumCardEditor extends PassableVacuumCardEditor {}
+  customElements.define(
+    "vacuum-dashboard-card-editor",
+    LegacyVacuumCardEditor
+  );
+}
 
-PassableVacuumCard.getConfigElement = async () =>
+PassableVacuumCard.getConfigElement = () =>
   document.createElement("passable-vacuum-card-editor");
 
 PassableVacuumCard.getStubConfig = (hass, entities, entitiesFallback) => {
@@ -3100,7 +3076,6 @@ PassableVacuumCard.getStubConfig = (hass, entities, entitiesFallback) => {
       ) || "";
   }
   return {
-    type: "custom:passable-vacuum-card",
     entity: vacuumEntity,
     map_camera: mapCamera,
   };
@@ -3109,14 +3084,16 @@ PassableVacuumCard.getStubConfig = (hass, entities, entitiesFallback) => {
 if (!customElements.get("passable-vacuum-card")) {
   customElements.define("passable-vacuum-card", PassableVacuumCard);
 }
+if (!customElements.get("vacuum-dashboard-card")) {
+  class LegacyVacuumCard extends PassableVacuumCard {}
+  customElements.define("vacuum-dashboard-card", LegacyVacuumCard);
+}
 
 window.customCards = window.customCards || [];
-if (!window.customCards.some((c) => c.type === "custom:passable-vacuum-card")) {
-  window.customCards.push({
-    type: "custom:passable-vacuum-card",
-    name: "Passable Vacuum Card",
-    preview: true,
-    description:
-      "A highly interactive, native LitElement dashboard card for Home Assistant robot vacuums.",
-  });
-}
+window.customCards.push({
+  type: "passable-vacuum-card",
+  name: "Passable Vacuum Card",
+  preview: true,
+  description:
+    "A highly interactive, native LitElement dashboard card for Home Assistant robot vacuums.",
+});
