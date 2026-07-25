@@ -5,7 +5,7 @@ import {
   svg,
 } from "https://unpkg.com/lit@3.0.0/index.js?module";
 
-const CARD_VERSION = "1.0.3";
+const CARD_VERSION = "1.0.4";
 
 console.info(
   `%c PASSABLE-VACUUM-CARD %c v${CARD_VERSION} `,
@@ -451,6 +451,36 @@ function formatDryingTime(timeInSeconds) {
 }
 
 class PassableVacuumCard extends LitElement {
+  static getConfigElement() {
+    return document.createElement("passable-vacuum-card-editor");
+  }
+
+  static getStubConfig(hass, entities, entitiesFallback) {
+    let vacuumEntity = "";
+    if (entities && entities.length > 0) {
+      vacuumEntity = entities.find((e) => e.startsWith("vacuum.")) || "";
+    }
+    if (!vacuumEntity && hass && hass.states) {
+      vacuumEntity =
+        Object.keys(hass.states).find((e) => e.startsWith("vacuum.")) || "";
+    }
+    if (!vacuumEntity && entitiesFallback && entitiesFallback.length > 0) {
+      vacuumEntity = entitiesFallback.find((e) => e.startsWith("vacuum.")) || "";
+    }
+    let mapCamera = "";
+    if (hass && hass.states) {
+      mapCamera =
+        Object.keys(hass.states).find(
+          (e) =>
+            (e.startsWith("camera.") || e.startsWith("image.")) &&
+            e.toLowerCase().includes("map")
+        ) || "";
+    }
+    return {
+      entity: vacuumEntity,
+      map_camera: mapCamera,
+    };
+  }
   static properties = {
     hass: { attribute: false },
     config: { state: true },
@@ -2903,7 +2933,7 @@ class PassableVacuumCardEditor extends LitElement {
   ];
 
   _valueChanged(ev) {
-    if (!this._config || !this.hass) return;
+    if (!this._config || !this.hass || !ev?.detail?.value) return;
     const val = ev.detail.value;
     const newConfig = {
       ...this._config,
@@ -2976,11 +3006,11 @@ class PassableVacuumCardEditor extends LitElement {
       };
     }
 
-    const event = new Event("config-changed", {
+    const event = new CustomEvent("config-changed", {
+      detail: { config: newConfig },
       bubbles: true,
       composed: true,
     });
-    event.detail = { config: newConfig };
     this.dispatchEvent(event);
   }
 

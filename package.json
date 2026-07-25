@@ -1,6 +1,6 @@
 {
   "name": "passable-vacuum-card",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "A customizable, interactive Home Assistant Lovelace card for robot vacuums.",
   "main": "passable-vacuum-card.js",
   "repository": {
