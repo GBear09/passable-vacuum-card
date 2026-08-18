@@ -5,7 +5,7 @@ import {
   svg,
 } from "https://unpkg.com/lit@3.0.0/index.js?module";
 
-const CARD_VERSION = "1.0.4";
+const CARD_VERSION = "1.0.5";
 
 console.info(
   `%c PASSABLE-VACUUM-CARD %c v${CARD_VERSION} `,
@@ -641,6 +641,7 @@ class PassableVacuumCard extends LitElement {
         ["binary_sensor", "sensor"],
         ["charging", "battery_state"]
       ),
+      status: findEnt(c.sensors?.status, "sensor", ["status"]),
       childLock: findEnt(
         c.options?.child_lock,
         ["switch", "input_boolean"],
@@ -720,15 +721,24 @@ class PassableVacuumCard extends LitElement {
 
     let batteryLevel = attributes.battery_level || attributes.battery || 0;
     if (this._entityMap.battery && this.hass.states[this._entityMap.battery]) {
-      batteryLevel = parseInt(this.hass.states[this._entityMap.battery].state);
+      const parsed = parseInt(this.hass.states[this._entityMap.battery].state, 10);
+      if (!isNaN(parsed)) batteryLevel = parsed;
     }
+
+    const statusEnt = this._entityMap.status
+      ? this.hass.states[this._entityMap.status]
+      : null;
+    const statusVal = (statusEnt?.state || vacuumStateObj.state || "").toLowerCase();
 
     const chargingEnt = this._entityMap.charging
       ? this.hass.states[this._entityMap.charging]
       : null;
     const isCharging = chargingEnt
       ? chargingEnt.state === "on" || chargingEnt.state === "charging"
-      : false;
+      : statusVal === "charging";
+
+    const isActivelyCharging =
+      isCharging && batteryLevel < 100 && statusVal !== "charging_complete";
 
     let mapData = { rooms: [], calibration: null };
     if (mapStateObj?.attributes) {
@@ -778,6 +788,7 @@ class PassableVacuumCard extends LitElement {
       attributes,
       batteryLevel,
       isCharging,
+      isActivelyCharging,
       mapUrl: mapStateObj?.attributes?.entity_picture || null,
       mapData,
       manualRoutines,
@@ -1462,7 +1473,7 @@ class PassableVacuumCard extends LitElement {
                     stroke="none"
                   >
                     ${
-                      data.isCharging
+                      data.isActivelyCharging
                         ? svg`<animate attributeName="width" values="0;${
                             (data.batteryLevel / 100) * 14
                           }" dur="2s" repeatCount="indefinite" />`
@@ -2862,6 +2873,11 @@ class PassableVacuumCardEditor extends LitElement {
       selector: { entity: { domain: ["binary_sensor", "sensor"] } },
     },
     {
+      name: "status",
+      label: "Status Sensor (Optional Override)",
+      selector: { entity: { domain: "sensor" } },
+    },
+    {
       name: "mop_intensity",
       label: "Mop Intensity (Optional Override)",
       selector: { entity: { domain: "select" } },
@@ -2983,6 +2999,7 @@ class PassableVacuumCardEditor extends LitElement {
       val.sensors ||
       val.battery ||
       val.charging ||
+      val.status ||
       val.clean_water ||
       val.dirty_water ||
       val.dock_error ||
@@ -2997,6 +3014,7 @@ class PassableVacuumCardEditor extends LitElement {
         sensors: val.sensors,
         battery: val.battery,
         charging: val.charging,
+        status: val.status,
         clean_water: val.clean_water,
         dirty_water: val.dirty_water,
         dock_error: val.dock_error,
@@ -3048,6 +3066,7 @@ class PassableVacuumCardEditor extends LitElement {
       sensors: this._config.sensors?.sensors || "",
       battery: this._config.sensors?.battery || "",
       charging: this._config.sensors?.charging || "",
+      status: this._config.sensors?.status || "",
       clean_water: this._config.sensors?.clean_water || "",
       dirty_water: this._config.sensors?.dirty_water || "",
       dock_error: this._config.sensors?.dock_error || "",
