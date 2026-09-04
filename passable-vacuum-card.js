@@ -5,7 +5,7 @@ import {
   svg,
 } from "https://unpkg.com/lit@3.0.0/index.js?module";
 
-const CARD_VERSION = "1.0.5";
+const CARD_VERSION = "1.0.6";
 
 console.info(
   `%c PASSABLE-VACUUM-CARD %c v${CARD_VERSION} `,
@@ -582,34 +582,42 @@ class PassableVacuumCard extends LitElement {
     const findEnt = (configVal, domains, keywords) => {
       if (configVal) return configVal;
       const domainArr = Array.isArray(domains) ? domains : [domains];
-      
-      const allDomainEntities = Object.keys(this.hass.states).filter((e) =>
-        domainArr.some((d) => e.startsWith(`${d}.`))
-      );
 
-      // 1. Strict match: Entity starts with exact baseName
-      for (const entity of allDomainEntities) {
-        const objectId = entity.split(".")[1] || "";
-        if (objectId.startsWith(baseName) && keywords.some((kw) => objectId.toLowerCase().includes(kw))) {
-          return entity;
+      for (const d of domainArr) {
+        const domainEntities = Object.keys(this.hass.states).filter((e) =>
+          e.startsWith(`${d}.`)
+        );
+
+        // 1. Strict match: Entity starts with exact baseName
+        for (const entity of domainEntities) {
+          const objectId = entity.split(".")[1] || "";
+          if (
+            objectId.startsWith(baseName) &&
+            keywords.some((kw) => objectId.toLowerCase().includes(kw))
+          ) {
+            return entity;
+          }
         }
-      }
 
-      // 2. Looser match: Entity contains the baseName (without "_vacuum" or "_robot" suffix)
-      const cleanBase = baseName.replace(/_vacuum|_robot/g, "");
-      for (const entity of allDomainEntities) {
-        const objectId = entity.split(".")[1] || "";
-        if (objectId.includes(cleanBase) && keywords.some((kw) => objectId.toLowerCase().includes(kw))) {
-          return entity;
+        // 2. Looser match: Entity contains the baseName (without "_vacuum" or "_robot" suffix)
+        const cleanBase = baseName.replace(/_vacuum|_robot/g, "");
+        for (const entity of domainEntities) {
+          const objectId = entity.split(".")[1] || "";
+          if (
+            objectId.includes(cleanBase) &&
+            keywords.some((kw) => objectId.toLowerCase().includes(kw))
+          ) {
+            return entity;
+          }
         }
-      }
 
-      // 3. Absolute fallback: Return any entity matching the keyword
-      // (This safely catches dock buttons like button.roborock_q_revo_dock_reset_strainer)
-      for (const entity of allDomainEntities) {
-        const objectId = entity.split(".")[1] || "";
-        if (keywords.some((kw) => objectId.toLowerCase().includes(kw))) {
-          return entity;
+        // 3. Absolute fallback: Return any entity matching the keyword
+        // (This safely catches dock buttons like button.roborock_q_revo_dock_reset_strainer)
+        for (const entity of domainEntities) {
+          const objectId = entity.split(".")[1] || "";
+          if (keywords.some((kw) => objectId.toLowerCase().includes(kw))) {
+            return entity;
+          }
         }
       }
 
@@ -668,8 +676,8 @@ class PassableVacuumCard extends LitElement {
         ["dock_error"]
       ),
       mopDrying: findEnt(
-        c.sensors?.mop_drying,
-        ["sensor", "binary_sensor"],
+        c.sensors?.mop_drying || c.options?.mop_drying,
+        ["switch", "binary_sensor", "sensor"],
         ["mop_drying_status", "mop_drying"]
       ),
       mopDryingTime: findEnt(c.sensors?.mop_drying_time, "sensor", [
@@ -1498,7 +1506,20 @@ class PassableVacuumCard extends LitElement {
 
         ${isDryingActive
           ? html`
-              <div class="drying-badge">
+              <div
+                class="drying-badge ${data.dock.mopDrying?.entity_id?.startsWith("switch.") ? "clickable" : ""}"
+                @click=${(e) => {
+                  if (data.dock.mopDrying?.entity_id?.startsWith("switch.")) {
+                    e.stopPropagation();
+                    this._toggleSwitch(
+                      data.dock.mopDrying.entity_id,
+                      data.dock.mopDrying.state
+                    );
+                  }
+                }}
+                style="${data.dock.mopDrying?.entity_id?.startsWith("switch.") ? "cursor: pointer;" : ""}"
+                title="${data.dock.mopDrying?.entity_id?.startsWith("switch.") ? "Click to stop mop drying" : "Mop drying"}"
+              >
                 <span
                   class="spin-animation"
                   style="margin-right:6px; display:flex;"
@@ -2925,7 +2946,7 @@ class PassableVacuumCardEditor extends LitElement {
     {
       name: "mop_drying",
       label: "Mop Drying Status (Optional Override)",
-      selector: { entity: { domain: ["sensor", "binary_sensor"] } },
+      selector: { entity: { domain: ["switch", "binary_sensor", "sensor"] } },
     },
     {
       name: "mop_drying_time",
