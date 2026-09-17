@@ -5,7 +5,7 @@ import {
   svg,
 } from "https://unpkg.com/lit@3.0.0/index.js?module";
 
-const CARD_VERSION = "1.0.6";
+const CARD_VERSION = "1.0.7";
 
 console.info(
   `%c PASSABLE-VACUUM-CARD %c v${CARD_VERSION} `,
@@ -1979,6 +1979,17 @@ class PassableVacuumCard extends LitElement {
                           const entId = `input_select.cleaning_routine_${day.id}`;
                           const selectObj = this.hass.states[entId];
                           const isSelected = selectObj?.state === routine.name;
+                          const options = selectObj?.attributes?.options || [];
+                          const offOption =
+                            options.find((opt) =>
+                              [
+                                "no cleaning",
+                                "none",
+                                "off",
+                                "disabled",
+                                "no clean",
+                              ].includes(opt.toLowerCase().trim())
+                            ) || "No Cleaning";
                           return html`
                             <button
                               class="day-btn ${isSelected ? "active" : ""}"
@@ -1987,7 +1998,7 @@ class PassableVacuumCard extends LitElement {
                                 selectObj &&
                                 this._setInpSelect(
                                   entId,
-                                  isSelected ? "None" : routine.name
+                                  isSelected ? offOption : routine.name
                                 )}
                             >
                               ${day.label}
