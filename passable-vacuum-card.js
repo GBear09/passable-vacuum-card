@@ -1,16 +1,22 @@
-import {
-  LitElement,
-  html,
-  css,
-  svg,
-} from "https://unpkg.com/lit@3.0.0/index.js?module";
+const CARD_VERSION = "1.0.8";
 
-const CARD_VERSION = "1.0.7";
+const LitElement = Object.getPrototypeOf(
+  customElements.get("hui-entities-card")
+);
+const html = LitElement.prototype.html;
+const css = LitElement.prototype.css;
+const svg = LitElement.prototype.svg || ((strings, ...values) => {
+  const result = html(strings, ...values);
+  if (result && typeof result === "object") {
+    return Object.assign({}, result, { _$litType$: 2, type: "svg" });
+  }
+  return result;
+});
 
 console.info(
-  `%c PASSABLE-VACUUM-CARD %c v${CARD_VERSION} `,
-  "color: white; background: #3b82f6; font-weight: bold;",
-  "color: white; background: #10b981; font-weight: bold;"
+  `%c PASSABLE-VACUUM-CARD %c v${CARD_VERSION} IS LOADED `,
+  "color: white; background: #0284c7; font-weight: bold; padding: 2px 6px; border-radius: 4px 0 0 4px;",
+  "color: #0284c7; background: #e0f2fe; font-weight: bold; padding: 2px 6px; border-radius: 0 4px 4px 0;"
 );
 
 // --- INLINE ICONS (Lucide) ---
@@ -1143,7 +1149,7 @@ class PassableVacuumCard extends LitElement {
     const isCleaning = ["cleaning", "returning", "moving"].includes(data.state);
 
     return html`
-      <div class="container">
+      <ha-card class="container">
         <div class="header">
           <h1 class="title">
             <ha-icon
@@ -1179,7 +1185,7 @@ class PassableVacuumCard extends LitElement {
             ? this._renderDiagnosticsTab(data)
             : ""}
         </div>
-      </div>
+      </ha-card>
     `;
   }
 
@@ -2183,7 +2189,7 @@ class PassableVacuumCard extends LitElement {
       :host {
         display: block;
       }
-      .container {
+      ha-card.container {
         font-family: var(
           --paper-font-body1_-_font-family,
           Roboto,
@@ -2203,6 +2209,7 @@ class PassableVacuumCard extends LitElement {
         display: flex;
         flex-direction: column;
         height: 750px;
+        overflow: hidden;
       }
       .header {
         padding: 16px 16px 0;
@@ -3191,6 +3198,7 @@ window.customCards.push({
   type: "passable-vacuum-card",
   name: "Passable Vacuum Card",
   preview: true,
+  documentationURL: "https://github.com/GBear09/passable-vacuum-card",
   description:
     "A highly interactive, native LitElement dashboard card for Home Assistant robot vacuums.",
 });
