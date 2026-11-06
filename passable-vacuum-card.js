@@ -1,4 +1,4 @@
-const CARD_VERSION = "1.0.8";
+const CARD_VERSION = "1.0.9";
 
 const LitElement = Object.getPrototypeOf(
   customElements.get("hui-entities-card")
@@ -564,7 +564,7 @@ class PassableVacuumCard extends LitElement {
 
   updated(changedProps) {
     if (
-      (changedProps.has("hass") || changedProps.has("config")) &&
+      (changedProps.has("config") || (!this._entityMap || Object.keys(this._entityMap).length === 0)) &&
       this.hass &&
       this.config
     ) {
