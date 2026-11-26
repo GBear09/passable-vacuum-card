@@ -5,6 +5,14 @@ All notable changes to **Passable Vacuum Card** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1] - 2026-11-26
+
+### Fixed
+- **"Unknown" Room & Auto-Empty State Leaks**: Filtered `"unknown"` / `"unavailable"` states on `sensor.roborock_q_revo_current_room` (falling back to selected floor name on main header and omitting from popup header when docked) and filtered `"unknown"` out of `dock_empty_mode` dropdown options.
+
+### Changed
+- **Passable Dropdown Controls**: Replaced cluttered pill rows for Cleaning Mode (map & dock tabs), Suction Power, Mop Water Flow, Mop Route Pattern, and Dock Auto-Empty Mode with clean `.passable-select-row` dropdown selectors matching `passable-appliance-card` and `passable-safety-card`.
+
 ## [2.0.0] - 2026-11-26
 
 ### Added

@@ -1,6 +1,6 @@
 /**
  * Passable Vacuum Card
- * Version: 2.0.0
+ * Version: 2.0.1
  * GitHub: https://github.com/GBear09/passable-vacuum-card
  *
  * Passable design-system robot vacuum card featuring model-accurate Roborock Q Revo &
@@ -9,7 +9,7 @@
  * Schedule, Health).
  */
 
-const CARD_VERSION = "2.0.0";
+const CARD_VERSION = "2.0.1";
 
 const VACUUM_TABS = [
   { id: "map", label: "Map", icon: "mdi:map-outline" },
@@ -41,6 +41,14 @@ console.info(
   "color: white; background: #0284c7; font-weight: bold; padding: 2px 6px; border-radius: 4px 0 0 4px;",
   "color: #0284c7; background: #e0f2fe; font-weight: bold; padding: 2px 6px; border-radius: 0 4px 4px 0;"
 );
+
+function validRoomLabel(val, fallback = "") {
+  const raw = String(val || "").trim();
+  if (!raw || ["unknown", "unavailable", "none", "null"].includes(raw.toLowerCase())) {
+    return fallback;
+  }
+  return raw;
+}
 
 function formatSettingName(val) {
   if (typeof val !== "string") return val;
@@ -498,7 +506,7 @@ class PassableVacuumCard extends LitElement {
   _onOverlayTouchMove(ev) {
     if (!ev.touches || ev.touches.length !== 1) return;
     const path = typeof ev.composedPath === "function" ? ev.composedPath() : [];
-    if (path.some((el) => el?.id === "map-container" || (el?.tagName === "INPUT" && el.type === "range"))) return;
+    if (path.some((el) => el?.id === "map-container" || el?.tagName === "SELECT" || (el?.tagName === "INPUT" && el.type === "range"))) return;
     const curY = ev.touches[0].clientY;
     const curX = ev.touches[0].clientX;
     const dy = curY - this._guardTouchY;
@@ -521,7 +529,7 @@ class PassableVacuumCard extends LitElement {
   _handlePopupTouchStart(e) {
     if (!e.touches || e.touches.length !== 1) return;
     const path = typeof e.composedPath === "function" ? e.composedPath() : [];
-    if (path.some((el) => el?.id === "map-container" || el?.tagName === "INPUT")) return;
+    if (path.some((el) => el?.id === "map-container" || el?.tagName === "INPUT" || el?.tagName === "SELECT")) return;
     const popupContent = e.currentTarget;
     const scrollArea = popupContent.querySelector(".modal-scroll-area");
     if (scrollArea && e.target && scrollArea.contains(e.target) && scrollArea.scrollTop > 0) return;
@@ -1215,14 +1223,14 @@ class PassableVacuumCard extends LitElement {
     const overdueCount = data.consumables.filter((i) => i.overdue).length;
     const hasWaterWarn = data.entities.waterShortage?.state === "on";
     const progressPct = parseFloat(data.entities.cleaningProgress?.state) || 0;
-    const roomName = data.entities.currentRoom?.state;
+    const roomName = validRoomLabel(data.entities.currentRoom?.state);
     const cleanModeLabel = data.entities.cleaningMode
       ? formatSettingName(data.entities.cleaningMode.state)
       : "Vac & Mop";
 
     let tone = "idle";
     let statusHeadline = isCleaning
-      ? `Cleaning${roomName && roomName !== "unavailable" ? ` ${roomName}` : ""}`
+      ? `Cleaning${roomName ? ` ${roomName}` : ""}`
       : isWashing
       ? "Dock Washing Mops"
       : isEmptying
@@ -1408,8 +1416,8 @@ class PassableVacuumCard extends LitElement {
                     <span class="t-mini-val">${formatSettingName(data.entities.mopIntensity?.state || "high")}</span>
                   </div>
                   <div class="telemetry-mini-card">
-                    <span class="t-mini-label">Room</span>
-                    <span class="t-mini-val">${roomName || "--"}</span>
+                    <span class="t-mini-label">Floor / Room</span>
+                    <span class="t-mini-val">${roomName || data.settings.selectedMap?.state || "--"}</span>
                   </div>
                   ${data.dock.mopWashingSwitch
                     ? html`
@@ -1849,26 +1857,48 @@ class PassableVacuumCard extends LitElement {
     `;
   }
 
+  _renderSelectRow(label, icon, currentVal, options = [], onSelect) {
+    const cleanOpts = (options || []).filter((o) => {
+      const low = String(o).toLowerCase();
+      return low !== "unknown" && low !== "unavailable";
+    });
+    if (cleanOpts.length === 0) return "";
+    const curValid = cleanOpts.includes(currentVal) ? currentVal : cleanOpts[0];
+    return html`
+      <div class="passable-select-row">
+        <div class="select-row-label">
+          <ha-icon icon="${icon}" style="--mdc-icon-size:17px; color:var(--primary-color);"></ha-icon>
+          <span>${label}</span>
+        </div>
+        <div class="select-wrap">
+          <select
+            class="passable-select"
+            aria-label="${label}"
+            .value=${String(curValid)}
+            @change=${(e) => onSelect(e.target.value)}
+          >
+            ${cleanOpts.map(
+              (opt) => html`<option value="${opt}" ?selected=${opt === curValid}>${formatSettingName(opt)}</option>`
+            )}
+          </select>
+          <ha-icon icon="mdi:chevron-down" class="select-chevron"></ha-icon>
+        </div>
+      </div>
+    `;
+  }
+
   _renderMapQuickControls(data, hasSelection, isCleaning) {
     const cleanMode = data.entities.cleaningMode;
     return html`
       <div class="controls-bar-stack">
         ${cleanMode
-          ? html`
-              <div class="mode-seg-row">
-                ${(cleanMode.attributes?.options || []).map(
-                  (opt) => html`
-                    <button
-                      type="button"
-                      class="mode-seg-btn ${cleanMode.state === opt ? "active" : ""}"
-                      @click=${() => this._setSelect(cleanMode.entity_id, opt)}
-                    >
-                      ${formatSettingName(opt)}
-                    </button>
-                  `
-                )}
-              </div>
-            `
+          ? this._renderSelectRow(
+              "Cleaning Mode",
+              "mdi:broom",
+              cleanMode.state,
+              cleanMode.attributes?.options || [],
+              (opt) => this._setSelect(cleanMode.entity_id, opt)
+            )
           : ""}
 
         <div class="control-pill-row">
@@ -2090,23 +2120,13 @@ class PassableVacuumCard extends LitElement {
         </div>
 
         ${data.dock.emptyMode
-          ? html`
-              <div class="chip-select-block">
-                <span class="chip-select-label">Auto-Empty Mode</span>
-                <div class="chip-select-row">
-                  ${(data.dock.emptyMode.attributes?.options || []).map(
-                    (opt) => html`
-                      <button
-                        class="opt-chip ${data.dock.emptyMode.state === opt ? "active" : ""}"
-                        @click=${() => this._setSelect(data.dock.emptyMode.entity_id, opt)}
-                      >
-                        ${formatSettingName(opt)}
-                      </button>
-                    `
-                  )}
-                </div>
-              </div>
-            `
+          ? this._renderSelectRow(
+              "Auto-Empty Mode",
+              "mdi:delete-sweep-outline",
+              data.dock.emptyMode.state,
+              data.dock.emptyMode.attributes?.options || [],
+              (opt) => this._setSelect(data.dock.emptyMode.entity_id, opt)
+            )
           : ""}
 
         ${data.dock.childLock
@@ -2132,79 +2152,41 @@ class PassableVacuumCard extends LitElement {
         </div>
 
         ${data.entities.cleaningMode
-          ? html`
-              <div class="chip-select-block">
-                <span class="chip-select-label">Cleaning Mode</span>
-                <div class="chip-select-row">
-                  ${(data.entities.cleaningMode.attributes?.options || []).map(
-                    (opt) => html`
-                      <button
-                        class="opt-chip ${data.entities.cleaningMode.state === opt ? "active" : ""}"
-                        @click=${() => this._setSelect(data.entities.cleaningMode.entity_id, opt)}
-                      >
-                        ${formatSettingName(opt)}
-                      </button>
-                    `
-                  )}
-                </div>
-              </div>
-            `
+          ? this._renderSelectRow(
+              "Cleaning Mode",
+              "mdi:broom",
+              data.entities.cleaningMode.state,
+              data.entities.cleaningMode.attributes?.options || [],
+              (opt) => this._setSelect(data.entities.cleaningMode.entity_id, opt)
+            )
           : ""}
 
-        <div class="chip-select-block">
-          <span class="chip-select-label">Suction Power</span>
-          <div class="chip-select-row">
-            ${(data.attributes.fan_speed_list || []).map(
-              (opt) => html`
-                <button
-                  class="opt-chip ${data.attributes.fan_speed === opt ? "active" : ""}"
-                  @click=${() => this._setFanSpeed(opt)}
-                >
-                  ${formatSettingName(opt)}
-                </button>
-              `
-            )}
-          </div>
-        </div>
+        ${this._renderSelectRow(
+          "Suction Power",
+          "mdi:fan",
+          data.attributes.fan_speed,
+          data.attributes.fan_speed_list || [],
+          (opt) => this._setFanSpeed(opt)
+        )}
 
         ${data.entities.mopIntensity
-          ? html`
-              <div class="chip-select-block">
-                <span class="chip-select-label">Mop Water Flow</span>
-                <div class="chip-select-row">
-                  ${(data.entities.mopIntensity.attributes?.options || []).map(
-                    (opt) => html`
-                      <button
-                        class="opt-chip ${data.entities.mopIntensity.state === opt ? "active" : ""}"
-                        @click=${() => this._setSelect(data.entities.mopIntensity.entity_id, opt)}
-                      >
-                        ${formatSettingName(opt)}
-                      </button>
-                    `
-                  )}
-                </div>
-              </div>
-            `
+          ? this._renderSelectRow(
+              "Mop Water Flow",
+              "mdi:water-outline",
+              data.entities.mopIntensity.state,
+              data.entities.mopIntensity.attributes?.options || [],
+              (opt) => this._setSelect(data.entities.mopIntensity.entity_id, opt)
+            )
           : ""}
 
         ${data.entities.mopMode
-          ? html`
-              <div class="chip-select-block">
-                <span class="chip-select-label">Mop Route Pattern</span>
-                <div class="chip-select-row">
-                  ${(data.entities.mopMode.attributes?.options || []).map(
-                    (opt) => html`
-                      <button
-                        class="opt-chip ${data.entities.mopMode.state === opt ? "active" : ""}"
-                        @click=${() => this._setSelect(data.entities.mopMode.entity_id, opt)}
-                      >
-                        ${formatSettingName(opt)}
-                      </button>
-                    `
-                  )}
-                </div>
-              </div>
-            `
+          ? this._renderSelectRow(
+              "Mop Route Pattern",
+              "mdi:gesture-swipe",
+              data.entities.mopMode.state,
+              data.entities.mopMode.attributes?.options || [],
+              (opt) => this._setSelect(data.entities.mopMode.entity_id, opt)
+            )
           : ""}
 
         ${data.settings.volume
@@ -2535,7 +2517,7 @@ class PassableVacuumCard extends LitElement {
                     ${data.vacuumName}
                   </h1>
                   <p class="subtitle">
-                    ${data.entities.currentRoom?.state || "Floor Care"} • ${data.batteryLevel}% Battery
+                    ${validRoomLabel(data.entities.currentRoom?.state, data.settings.selectedMap?.state || "Floor Care")} • ${data.batteryLevel}% Battery
                   </p>
                 </div>
                 <div class="header-right">
@@ -2591,7 +2573,7 @@ class PassableVacuumCard extends LitElement {
                         <h3>${data.vacuumName}</h3>
                         <div class="popup-header-sub">
                           ${formatSettingName(data.state)} • ${data.batteryLevel}%
-                          ${data.entities.currentRoom?.state ? ` • ${data.entities.currentRoom.state}` : ""}
+                          ${validRoomLabel(data.entities.currentRoom?.state) ? ` • ${validRoomLabel(data.entities.currentRoom?.state)}` : ""}
                         </div>
                       </div>
                     </div>
@@ -3364,33 +3346,53 @@ class PassableVacuumCard extends LitElement {
         display: flex;
         flex-direction: column;
         gap: 8px;
-        align-items: center;
+        align-items: stretch;
       }
-      .mode-seg-row {
+      .passable-select-row {
         display: flex;
-        width: 100%;
-        background: var(--secondary-background-color, rgba(128, 128, 128, 0.1));
-        border: 1px solid var(--divider-color, rgba(128, 128, 128, 0.16));
-        padding: 3px;
-        border-radius: 12px;
-        gap: 3px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 7px 9px;
+        border-radius: 10px;
+        background: var(--card-background-color, #fff);
+        border: 1px solid var(--divider-color, rgba(128, 128, 128, 0.18));
+        font-size: 12.5px;
       }
-      .mode-seg-btn {
-        flex: 1;
-        border: none;
-        background: transparent;
-        color: var(--secondary-text-color);
-        font-family: inherit;
-        font-size: 12px;
+      .select-row-label {
+        display: flex;
+        align-items: center;
+        gap: 7px;
         font-weight: 600;
-        padding: 6px 4px;
-        border-radius: 9px;
-        cursor: pointer;
+        min-width: 0;
       }
-      .mode-seg-btn.active {
-        background: var(--primary-color, #3b82f6);
-        color: var(--text-primary-color, #ffffff);
+      .select-wrap {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        flex-shrink: 0;
+      }
+      .passable-select {
+        appearance: none;
+        -webkit-appearance: none;
+        padding: 6px 28px 6px 10px;
+        border-radius: 9px;
+        border: 1px solid var(--divider-color, rgba(128, 128, 128, 0.22));
+        background: var(--secondary-background-color, rgba(128, 128, 128, 0.1));
+        color: var(--primary-text-color);
+        font-family: inherit;
+        font-size: 12.5px;
         font-weight: 700;
+        cursor: pointer;
+        max-width: 210px;
+        text-overflow: ellipsis;
+      }
+      .select-chevron {
+        position: absolute;
+        right: 7px;
+        pointer-events: none;
+        color: var(--secondary-text-color);
+        --mdc-icon-size: 16px;
       }
       .control-pill-row {
         display: flex;
