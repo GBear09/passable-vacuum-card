@@ -1,6 +1,6 @@
 /**
  * Passable Vacuum Card
- * Version: 2.0.1
+ * Version: 2.0.2
  * GitHub: https://github.com/GBear09/passable-vacuum-card
  *
  * Passable design-system robot vacuum card featuring model-accurate Roborock Q Revo &
@@ -9,7 +9,7 @@
  * Schedule, Health).
  */
 
-const CARD_VERSION = "2.0.1";
+const CARD_VERSION = "2.0.2";
 
 const VACUUM_TABS = [
   { id: "map", label: "Map", icon: "mdi:map-outline" },
@@ -124,30 +124,33 @@ class PassableVacuumCard extends LitElement {
     };
   }
 
-  static properties = {
-    hass: { attribute: false },
-    config: { state: true },
-    _activeTab: { state: true },
-    _animDirection: { state: true },
-    _modalOpen: { state: true },
-    _trayExpanded: { state: true },
-    _mapZoom: { state: true },
-    _mapPan: { state: true },
-    _isPanning: { state: true },
-    _mapMode: { state: true },
-    _repeats: { state: true },
-    _customZone: { state: true },
-    _selectedRoomIds: { state: true },
-    _targetPin: { state: true },
-    _selectedRoutineId: { state: true },
-    _showRoutinePopup: { state: true },
-    _mapLocked: { state: true },
-    _imgInfo: { state: true },
-    _activePopup: { state: true },
-    _sliderVal: { state: true },
-    _zoneDrag: { state: true },
-    _toastMsg: { state: true },
-  };
+  static get properties() {
+    return {
+      hass: { attribute: false },
+      config: { state: true },
+      _activeTab: { state: true },
+      _animDirection: { state: true },
+      _modalOpen: { state: true },
+      _trayExpanded: { state: true },
+      _mapZoom: { state: true },
+      _mapPan: { state: true },
+      _isPanning: { state: true },
+      _mapMode: { state: true },
+      _repeats: { state: true },
+      _customZone: { state: true },
+      _selectedRoomIds: { state: true },
+      _targetPin: { state: true },
+      _selectedRoutineId: { state: true },
+      _showRoutinePopup: { state: true },
+      _mapLocked: { state: true },
+      _imgInfo: { state: true },
+      _activePopup: { state: true },
+      _sliderVal: { state: true },
+      _zoneDrag: { state: true },
+      _toastMsg: { state: true },
+      _pendingFloor: { state: true },
+    };
+  }
 
   constructor() {
     super();
@@ -168,10 +171,18 @@ class PassableVacuumCard extends LitElement {
     this._selectedRoutineId = null;
     this._showRoutinePopup = false;
     this._mapLocked = true;
-    this._imgInfo = { w: 800, h: 800, loaded: false };
+    this._imgInfo = { w: 800, h: 800, url: null, loaded: false };
     this._activePopup = null;
     this._sliderVal = 0;
     this._toastMsg = null;
+    this._pendingFloor = null;
+    this._floorSyncTimer = null;
+    this._queuedFloorAction = null;
+    this._mapDimCache = {};
+    this._preloadedUrls = new Set();
+    this._hasRenderedData = false;
+    this._cachedConfigRef = null;
+    this._cachedStateCount = 0;
     this._entityMap = null;
     this._cachedBaseName = null;
     this._boundMapEl = null;
@@ -226,8 +237,10 @@ class PassableVacuumCard extends LitElement {
       ...config,
     };
     this._entityMap = null;
+    this._cachedConfigRef = null;
+    this._cachedStateCount = 0;
     if (this.hass) {
-      this._discoverEntities();
+      this._ensureDiscovered();
     }
   }
 
@@ -250,17 +263,63 @@ class PassableVacuumCard extends LitElement {
     clearTimeout(this._toastTimer);
     clearTimeout(this._closeModalTimer);
     clearTimeout(this._swipeResetTimer);
+    clearTimeout(this._floorSyncTimer);
+  }
+
+  _ensureDiscovered() {
+    if (!this.hass || !this.hass.states || !this.config) return;
+    const stateCount = Object.keys(this.hass.states).length;
+    if (
+      !this._entityMap ||
+      Object.keys(this._entityMap).length === 0 ||
+      this._cachedConfigRef !== this.config ||
+      this._cachedStateCount !== stateCount
+    ) {
+      this._discoverEntities();
+      this._cachedConfigRef = this.config;
+      this._cachedStateCount = stateCount;
+    }
+    this._preloadFloorMaps();
+  }
+
+  _preloadFloorMaps() {
+    const candidates = [...(this._entityMap?.mapImages || [])];
+    if (this.config?.map_camera && !candidates.includes(this.config.map_camera)) {
+      candidates.push(this.config.map_camera);
+    }
+    for (const mapEntId of candidates) {
+      const url = this.hass?.states?.[mapEntId]?.attributes?.entity_picture;
+      if (!url || this._preloadedUrls.has(url)) continue;
+      this._preloadedUrls.add(url);
+      const img = new Image();
+      img.onload = () => {
+        this._mapDimCache = {
+          ...this._mapDimCache,
+          [mapEntId]: {
+            w: img.naturalWidth || 800,
+            h: img.naturalHeight || 800,
+            url,
+            loaded: true,
+          },
+        };
+        this.requestUpdate();
+      };
+      img.src = url;
+    }
   }
 
   updated(changedProps) {
-    if (
-      (changedProps.has("config") ||
-        !this._entityMap ||
-        Object.keys(this._entityMap).length === 0) &&
-      this.hass &&
-      this.config
-    ) {
-      this._discoverEntities();
+    if (this._pendingFloor && this._entityMap?.selectedMap) {
+      const curFloor = this.hass?.states?.[this._entityMap.selectedMap]?.state;
+      if (curFloor === this._pendingFloor) {
+        this._pendingFloor = null;
+        clearTimeout(this._floorSyncTimer);
+        if (this._queuedFloorAction) {
+          const fn = this._queuedFloorAction;
+          this._queuedFloorAction = null;
+          fn();
+        }
+      }
     }
     this._bindMapContainer();
     if (this._modalOpen && this.config?.display_mode === "summary") {
@@ -278,6 +337,13 @@ class PassableVacuumCard extends LitElement {
     const oldHass = changedProps.get("hass");
     const newHass = this.hass;
     if (!oldHass || !newHass || !oldHass.states || !newHass.states || !this.config) {
+      return true;
+    }
+    if (!this._hasRenderedData || !this._entityMap) {
+      return true;
+    }
+    if (Object.keys(oldHass.states).length !== Object.keys(newHass.states).length) {
+      this._entityMap = null;
       return true;
     }
     const watched = new Set();
@@ -718,6 +784,7 @@ class PassableVacuumCard extends LitElement {
   }
 
   get data() {
+    this._ensureDiscovered();
     if (!this.hass || !this.config || !this._entityMap) return null;
     const vacuumId = this.config.entity;
     const vacuumStateObj = this.hass.states[vacuumId];
@@ -727,7 +794,11 @@ class PassableVacuumCard extends LitElement {
     const attributes = vacuumStateObj.attributes || {};
     const vacuumName = this.config.title || attributes.friendly_name || "Roborock Q Revo";
     const selectedMapObj = getE(this._entityMap.selectedMap);
-    const mapId = this._resolveActiveMapEntityId(selectedMapObj?.state);
+    const activeFloor = this._pendingFloor || selectedMapObj?.state || null;
+    const isSyncingFloor = Boolean(
+      this._pendingFloor && selectedMapObj && selectedMapObj.state !== this._pendingFloor
+    );
+    const mapId = this._resolveActiveMapEntityId(activeFloor);
     const mapStateObj = mapId ? this.hass.states[mapId] : null;
 
     let batteryLevel = attributes.battery_level ?? attributes.battery ?? 0;
@@ -807,6 +878,8 @@ class PassableVacuumCard extends LitElement {
       batteryLevel,
       isCharging,
       isActivelyCharging,
+      activeFloor,
+      isSyncingFloor,
       mapId,
       mapUrl: mapStateObj?.attributes?.entity_picture || null,
       mapData,
@@ -947,6 +1020,33 @@ class PassableVacuumCard extends LitElement {
     this._call("vacuum", "set_fan_speed", { entity_id: this.config.entity, fan_speed: speed });
   }
 
+  _switchFloor(floor) {
+    if (!floor) return;
+    this._fireHaptic("light");
+    this._selectedRoomIds = [];
+    this._targetPin = null;
+    this._customZone =
+      this._mapMode === "zones" ? { x: 0.35, y: 0.35, w: 0.3, h: 0.3 } : null;
+    this._mapZoom = 1;
+    this._mapPan = { x: 0, y: 0 };
+    this._pendingFloor = floor;
+    clearTimeout(this._floorSyncTimer);
+    this._floorSyncTimer = setTimeout(() => {
+      this._pendingFloor = null;
+      this._queuedFloorAction = null;
+    }, 12000);
+    const selectedMapId = this._entityMap?.selectedMap;
+    if (selectedMapId && this.hass?.states?.[selectedMapId]?.state !== floor) {
+      this.hass.callService("select", "select_option", {
+        entity_id: selectedMapId,
+        option: floor,
+      });
+    } else if (selectedMapId && this.hass?.states?.[selectedMapId]?.state === floor) {
+      this._pendingFloor = null;
+      clearTimeout(this._floorSyncTimer);
+    }
+  }
+
   _setSelect(entity_id, option) {
     this._call("select", "select_option", { entity_id, option });
   }
@@ -1041,8 +1141,21 @@ class PassableVacuumCard extends LitElement {
     };
   }
 
-  _getScales(mapData) {
-    if (!mapData.calibration || mapData.calibration.length < 3 || !this._imgInfo.loaded) return null;
+  _getActiveMapDim(data = null) {
+    const mapId = data?.mapId || this.data?.mapId;
+    const mapUrl = data?.mapUrl || this.data?.mapUrl;
+    if (mapId && this._mapDimCache[mapId]?.loaded) {
+      return this._mapDimCache[mapId];
+    }
+    if (this._imgInfo?.loaded && (!mapUrl || this._imgInfo.url === mapUrl)) {
+      return this._imgInfo;
+    }
+    return { w: 800, h: 800, loaded: false };
+  }
+
+  _getScales(mapData, dim = null) {
+    const imgDim = dim || this._getActiveMapDim();
+    if (!mapData.calibration || mapData.calibration.length < 3 || !imgDim.loaded) return null;
     const cp = mapData.calibration;
     const mapDiffX = cp[1].map.x - cp[0].map.x || 1;
     const mapDiffY = cp[2].map.y - cp[0].map.y || 1;
@@ -1050,24 +1163,26 @@ class PassableVacuumCard extends LitElement {
       vacScaleX: (cp[1].vacuum.x - cp[0].vacuum.x) / mapDiffX,
       vacScaleY: (cp[2].vacuum.y - cp[0].vacuum.y) / mapDiffY,
       cp0: cp[0],
+      w: imgDim.w,
+      h: imgDim.h,
     };
   }
 
-  _pctToVac(pctX, pctY, mapData) {
-    const scales = this._getScales(mapData);
+  _pctToVac(pctX, pctY, mapData, dim = null) {
+    const scales = this._getScales(mapData, dim);
     if (!scales) return { x: 0, y: 0 };
     return {
-      x: scales.cp0.vacuum.x + (pctX * this._imgInfo.w - scales.cp0.map.x) * scales.vacScaleX,
-      y: scales.cp0.vacuum.y + (pctY * this._imgInfo.h - scales.cp0.map.y) * scales.vacScaleY,
+      x: scales.cp0.vacuum.x + (pctX * scales.w - scales.cp0.map.x) * scales.vacScaleX,
+      y: scales.cp0.vacuum.y + (pctY * scales.h - scales.cp0.map.y) * scales.vacScaleY,
     };
   }
 
-  _vacToPct(vacX, vacY, mapData) {
-    const scales = this._getScales(mapData);
+  _vacToPct(vacX, vacY, mapData, dim = null) {
+    const scales = this._getScales(mapData, dim);
     if (!scales || !scales.vacScaleX) return { x: 0, y: 0 };
     return {
-      x: (scales.cp0.map.x + (vacX - scales.cp0.vacuum.x) / scales.vacScaleX) / this._imgInfo.w,
-      y: (scales.cp0.map.y + (vacY - scales.cp0.vacuum.y) / scales.vacScaleY) / this._imgInfo.h,
+      x: (scales.cp0.map.x + (vacX - scales.cp0.vacuum.x) / scales.vacScaleX) / scales.w,
+      y: (scales.cp0.map.y + (vacY - scales.cp0.vacuum.y) / scales.vacScaleY) / scales.h,
     };
   }
 
@@ -1149,6 +1264,15 @@ class PassableVacuumCard extends LitElement {
   }
 
   _cleanSelected(mapData) {
+    if (
+      this._pendingFloor &&
+      this._entityMap?.selectedMap &&
+      this.hass?.states?.[this._entityMap.selectedMap]?.state !== this._pendingFloor
+    ) {
+      this._queuedFloorAction = () => this._cleanSelected(this.data?.mapData || mapData);
+      this._showToast(`Syncing ${this._pendingFloor} map — will start momentarily`);
+      return;
+    }
     if (this._mapMode === "zones" && this._customZone) {
       const p1 = this._pctToVac(this._customZone.x, this._customZone.y, mapData);
       const p2 = this._pctToVac(
@@ -1338,8 +1462,8 @@ class PassableVacuumCard extends LitElement {
               <div class="unit-title-stack">
                 <div class="unit-title-row">
                   <h3 class="unit-title">${data.vacuumName}</h3>
-                  ${data.settings.selectedMap
-                    ? html`<span class="zone-inline-chip neutral">${data.settings.selectedMap.state}</span>`
+                  ${data.activeFloor || data.settings.selectedMap
+                    ? html`<span class="zone-inline-chip neutral">${data.activeFloor || data.settings.selectedMap.state}</span>`
                     : ""}
                   ${isDrying ? html`<span class="zone-inline-chip info">Drying</span>` : ""}
                   ${hasWaterWarn ? html`<span class="zone-inline-chip danger">Low Water</span>` : ""}
@@ -1556,6 +1680,7 @@ class PassableVacuumCard extends LitElement {
       data.dock.mopDryingSwitch?.state === "on" ||
       parseFloat(dryingTimeRaw) > 0;
     const mapHeight = this._modalOpen ? 340 : Number(this.config.map_height) || 380;
+    const mapDim = this._getActiveMapDim(data);
 
     return html`
       <div
@@ -1641,10 +1766,13 @@ class PassableVacuumCard extends LitElement {
                   (floor) => html`
                     <button
                       type="button"
-                      class="floor-btn ${data.settings.selectedMap.state === floor ? "active" : ""}"
-                      @click=${() => this._setSelect(data.settings.selectedMap.entity_id, floor)}
+                      class="floor-btn ${data.activeFloor === floor ? "active" : ""}"
+                      @click=${() => this._switchFloor(floor)}
                     >
-                      ${floor}
+                      <span>${floor}</span>
+                      ${data.isSyncingFloor && data.activeFloor === floor
+                        ? html`<ha-icon icon="mdi:sync" class="spin-icon" style="--mdc-icon-size:12px; margin-left:3px;"></ha-icon>`
+                        : ""}
                     </button>
                   `
                 )}
@@ -1704,23 +1832,29 @@ class PassableVacuumCard extends LitElement {
             ? html`
                 <div
                   id="map-wrapper"
-                  style="aspect-ratio: ${this._imgInfo.loaded ? `${this._imgInfo.w} / ${this._imgInfo.h}` : "auto"}"
+                  style="aspect-ratio: ${mapDim.loaded ? `${mapDim.w} / ${mapDim.h}` : "auto"}"
                 >
                   <img
                     src="${data.mapUrl}"
-                    @load=${(e) =>
-                      (this._imgInfo = {
-                        w: e.target.naturalWidth,
-                        h: e.target.naturalHeight,
+                    @load=${(e) => {
+                      const info = {
+                        w: e.target.naturalWidth || 800,
+                        h: e.target.naturalHeight || 800,
+                        url: data.mapUrl,
                         loaded: true,
-                      })}
+                      };
+                      this._imgInfo = info;
+                      if (data.mapId) {
+                        this._mapDimCache = { ...this._mapDimCache, [data.mapId]: info };
+                      }
+                    }}
                     draggable="false"
                   />
 
-                  ${this._imgInfo.loaded
+                  ${mapDim.loaded
                     ? data.mapData.rooms.map((r) => {
-                        const p1 = this._vacToPct(r.x0, r.y0, data.mapData);
-                        const p2 = this._vacToPct(r.x1, r.y1, data.mapData);
+                        const p1 = this._vacToPct(r.x0, r.y0, data.mapData, mapDim);
+                        const p2 = this._vacToPct(r.x1, r.y1, data.mapData, mapDim);
                         const isSelected = this._selectedRoomIds.includes(r.id);
                         return html`
                           <div
@@ -2470,14 +2604,17 @@ class PassableVacuumCard extends LitElement {
 
   render() {
     if (!this.config?.entity) {
+      this._hasRenderedData = false;
       return html`
         <ha-card>
           <div class="header">
-            <h1 class="title">
-              <ha-icon icon="mdi:robot-vacuum" style="margin-right:8px; color:var(--primary-color);"></ha-icon>
-              Passable Vacuum Card
-            </h1>
-            <p class="subtitle">Select a vacuum entity in the editor</p>
+            <div class="header-left">
+              <h1 class="title">
+                <ha-icon icon="mdi:robot-vacuum" style="margin-right:8px; color:var(--primary-color);"></ha-icon>
+                Passable Vacuum Card
+              </h1>
+              <p class="subtitle">Select a vacuum entity in the editor</p>
+            </div>
           </div>
         </ha-card>
       `;
@@ -2485,18 +2622,22 @@ class PassableVacuumCard extends LitElement {
 
     const data = this.data;
     if (!data) {
+      this._hasRenderedData = false;
       return html`
         <ha-card>
           <div class="header">
-            <h1 class="title">
-              <ha-icon icon="mdi:robot-vacuum" style="margin-right:8px; color:var(--primary-color);"></ha-icon>
-              Passable Vacuum Card
-            </h1>
-            <p class="subtitle">Waiting for ${this.config.entity}...</p>
+            <div class="header-left">
+              <h1 class="title">
+                <ha-icon icon="mdi:robot-vacuum" style="margin-right:8px; color:var(--primary-color);"></ha-icon>
+                Passable Vacuum Card
+              </h1>
+              <p class="subtitle">Waiting for ${this.config.entity}...</p>
+            </div>
           </div>
         </ha-card>
       `;
     }
+    this._hasRenderedData = true;
 
     const isCleaning = ["cleaning", "returning", "moving"].includes(data.state);
     const isSummaryMode = this.config.display_mode === "summary";
@@ -2517,7 +2658,7 @@ class PassableVacuumCard extends LitElement {
                     ${data.vacuumName}
                   </h1>
                   <p class="subtitle">
-                    ${validRoomLabel(data.entities.currentRoom?.state, data.settings.selectedMap?.state || "Floor Care")} • ${data.batteryLevel}% Battery
+                    ${validRoomLabel(data.entities.currentRoom?.state, data.activeFloor || data.settings.selectedMap?.state || "Floor Care")} • ${data.batteryLevel}% Battery
                   </p>
                 </div>
                 <div class="header-right">
@@ -3209,6 +3350,8 @@ class PassableVacuumCard extends LitElement {
         gap: 2px;
       }
       .floor-btn {
+        display: inline-flex;
+        align-items: center;
         border: none;
         background: transparent;
         color: var(--secondary-text-color);
@@ -3783,10 +3926,12 @@ class PassableVacuumCard extends LitElement {
 }
 
 class PassableVacuumCardEditor extends LitElement {
-  static properties = {
-    hass: { attribute: false },
-    _config: { state: true },
-  };
+  static get properties() {
+    return {
+      hass: { attribute: false },
+      _config: { state: true },
+    };
+  }
 
   setConfig(config) {
     this._config = config || {};

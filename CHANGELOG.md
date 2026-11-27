@@ -5,6 +5,12 @@ All notable changes to **Passable Vacuum Card** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.2] - 2026-11-26
+
+### Fixed
+- **Card Initialization Deadlock**: Fixed `Waiting for vacuum...` freeze when Home Assistant assigns `hass` after `setConfig()` by running synchronous `_ensureDiscovered()` inside `get data()` and ensuring `shouldUpdate()` never skips renders before initial data renders. Also wrapped fallback headers in `.header-left`.
+- **Instant Multi-Floor Map Switching**: Preloads both `Downstairs` and `Upstairs` map images with per-floor dimension caching (`_mapDimCache`) and applies optimistic floor selection (`_pendingFloor`) with background robot sync, queuing room/zone clean commands until map sync confirms so floor switches feel instantaneous while staying safe.
+
 ## [2.0.1] - 2026-11-26
 
 ### Fixed
